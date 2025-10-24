@@ -7,7 +7,7 @@ import io
 # --- Page Setup ---
 st.set_page_config(page_title="Campaign Batch Extractor", layout="wide", page_icon="📞")
 st.title("📞 Campaign Batch Extractor")
-st.markdown("Easily extract batches of 10 leads from your uploaded Excel file.")
+st.markdown("Easily extract batches of 10 leads from your uploaded Excel file. You can also delete individual rows before downloading.")
 
 # --- Phone Cleaner ---
 def clean_us_phone(phone):
@@ -44,12 +44,17 @@ if missing_cols:
     st.error(f"❌ Missing columns in Excel file: {', '.join(missing_cols)}")
     st.stop()
 
-# --- Session State for Pagination ---
+# --- Session State for Pagination & Deletions ---
 if "start_index" not in st.session_state:
     st.session_state.start_index = 0
+if "deleted_indices" not in st.session_state:
+    st.session_state.deleted_indices = set()
 
 # --- User Input for Start Row ---
-start_input = st.number_input("📍 Start from row number:", min_value=1, max_value=len(df_excel), value=st.session_state.start_index + 1, step=1)
+start_input = st.number_input(
+    "📍 Start from row number:",
+    min_value=1, max_value=len(df_excel), value=st.session_state.start_index + 1, step=1
+)
 st.session_state.start_index = start_input - 1
 
 # --- Define Range ---
@@ -59,30 +64,50 @@ end = min(start + batch_size, len(df_excel))
 
 # --- Extract Batch ---
 selected = df_excel.iloc[start:end].copy()
-selected['registrant_phone'] = selected['registrant_phone'].apply(clean_us_phone)
+selected["index_in_file"] = selected.index  # keep original index reference
+selected["registrant_phone"] = selected["registrant_phone"].apply(clean_us_phone)
 
 # --- Prepare Output ---
 new_data = pd.DataFrame({
-    'number': selected['registrant_phone'],
-    'name': selected['registrant_name'],
-    'another_var': selected['domain_name']
+    "number": selected["registrant_phone"],
+    "name": selected["registrant_name"],
+    "another_var": selected["domain_name"],
+    "orig_index": selected["index_in_file"]
 })
 
 df_clean_template = df_template[
-    ~df_template['name'].astype(str).str.lower().isin(['john doe', 'jane smith', 'bob johnson'])
+    ~df_template["name"].astype(str).str.lower().isin(["john doe", "jane smith", "bob johnson"])
 ]
-combined = pd.concat([df_clean_template, new_data], ignore_index=True)[['number', 'name', 'another_var']]
 
-# --- Display ---
+# Filter out deleted rows
+new_data = new_data[~new_data["orig_index"].isin(st.session_state.deleted_indices)]
+
+# Combine
+combined = pd.concat([df_clean_template, new_data], ignore_index=True)[["number", "name", "another_var"]]
+
+# --- Display Table with Delete Buttons ---
 st.subheader(f"📋 Showing rows {start + 1} to {end} of {len(df_excel)}")
-st.dataframe(combined.tail(10), use_container_width=True)
+st.write("You can delete unwanted rows before downloading 👇")
+
+for i, row in new_data.iterrows():
+    col1, col2, col3, col4 = st.columns([3, 3, 3, 1])
+    col1.write(row["name"])
+    col2.write(row["number"])
+    col3.write(row["another_var"])
+    if col4.button("❌ Delete", key=f"delete_{row['orig_index']}"):
+        st.session_state.deleted_indices.add(row["orig_index"])
+        st.rerun()
+
+if new_data.empty:
+    st.warning("⚠️ All rows in this batch were deleted.")
 
 # --- Buttons ---
-col1, col2, col3 = st.columns(3)
+colA, colB, colC = st.columns(3)
 
-# Previous
-if col1.button("⬅️ Previous Batch") and st.session_state.start_index >= batch_size:
+# Previous Batch
+if colA.button("⬅️ Previous Batch") and st.session_state.start_index >= batch_size:
     st.session_state.start_index -= batch_size
+    st.session_state.deleted_indices.clear()
     st.rerun()
 
 # Download
@@ -90,16 +115,17 @@ csv_buffer = io.StringIO()
 combined.to_csv(csv_buffer, index=False, encoding="utf-8-sig")
 csv_bytes = csv_buffer.getvalue().encode("utf-8-sig")
 
-col2.download_button(
+colB.download_button(
     label="📥 Download This Batch",
     data=csv_bytes,
     file_name=f"campaign-output-{start+1}-{end}.csv",
     mime="text/csv"
 )
 
-# Nextdcfvg
-if col3.button("➡️ Next Batch") and end < len(df_excel):
+# Next Batch
+if colC.button("➡️ Next Batch") and end < len(df_excel):
     st.session_state.start_index += batch_size
+    st.session_state.deleted_indices.clear()
     st.rerun()
 
 st.caption("Developed for marketing automation — ready for deployment 🚀")
