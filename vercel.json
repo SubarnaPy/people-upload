@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "campaign_ui.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "campaign_ui.py"
+    }
+  ]
+}
