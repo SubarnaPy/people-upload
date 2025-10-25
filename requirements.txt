@@ -2,3 +2,10 @@ streamlit
 pandas
 openpyxl
 xlrd
+pymongo
+cloudinary
+python-dotenv
+tqdm
+passlib[bcrypt]
+streamlit-option-menu
+requests
